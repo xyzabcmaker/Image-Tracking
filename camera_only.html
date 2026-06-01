@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<body>
+<h2>Camera Test</h2>
+
+<video id="video"
+       autoplay
+       playsinline
+       style="width:100%;"></video>
+
+<script>
+navigator.mediaDevices.getUserMedia({
+  video:{
+    facingMode:"environment"
+  }
+})
+.then(stream=>{
+  document.getElementById("video").srcObject = stream;
+  alert("Camera OK");
+})
+.catch(err=>{
+  alert("Camera Error: " + err);
+});
+</script>
+
+</body>
+</html>
