@@ -55,7 +55,7 @@ Searching for image...
 
         <a-asset-item
             id="myModel"
-            src="model.glb">
+            src="./Assets/model1.glb">
         </a-asset-item>
 
     </a-assets>
@@ -77,16 +77,22 @@ Searching for image...
     </a-light>
 
     <!-- TARGET 0 -->
-    <a-entity mindar-image-target="targetIndex:0">
+   <a-entity
+    id="target"
+    mindar-image-target="targetIndex:0">
 
   <a-gltf-model
-    id="model"
-    src="model.glb"
-    position="0 0 0"
-    scale="1 1 1">
-</a-gltf-model>
+        id="model"
+        src="./Assets/model1.glb"
+        position="0 0 0"
+        rotation="0 0 0"
+        scale="1 1 1"
+        >
+    </a-gltf-model>
+</a-entity>
 
-    <script>
+
+<script>
         window.addEventListener("load", () => {
 
         const model = document.querySelector("#model");
@@ -100,11 +106,15 @@ Searching for image...
         console.log(e);
         });
 
-});
+    });
 </script>
 
-</a-entity>
+
 <!-- check if the glb model is the problem
+
+        in gltf model tag below position 
+        
+
     <a-entity
         id="target"
         mindar-image-target="targetIndex:0">
@@ -118,9 +128,141 @@ Searching for image...
         </a-gltf-model>
 
     </a-entity>
+
+
+
+
 -->
 </a-scene>
 
+
+
+<!--replacement code to activate touch controls--> 
+
+
+<script>
+
+            const target = document.querySelector("#target");
+            const status = document.querySelector("#status");
+            const model = document.querySelector("#model");
+
+            let currentScale = 1;
+            let currentRotationY = 0;
+
+            let previousX = 0;
+            let pinchDistance = null;
+
+            function getDistance(t1, t2) {
+            const dx = t1.clientX - t2.clientX;
+            const dy = t1.clientY - t2.clientY;
+
+            return Math.sqrt(dx * dx + dy * dy);
+            }
+
+            target.addEventListener("targetFound", () => {
+            status.innerHTML = "Image Found";
+            });
+
+            target.addEventListener("targetLost", () => {
+            status.innerHTML = "Searching for image...";
+            });
+
+            model.addEventListener("model-loaded", () => {
+            console.log("MODEL LOADED");
+            });
+
+            model.addEventListener("model-error", (e) => {
+            console.log("MODEL ERROR", e);
+            });
+
+            document.addEventListener("touchstart", (event) => {
+
+            if (event.touches.length === 1) {
+
+                previousX = event.touches[0].clientX;
+
+            }
+
+            if (event.touches.length === 2) {
+
+                pinchDistance = getDistance(
+                event.touches[0],
+                event.touches[1]
+                );
+
+            }
+
+            }, { passive:false });
+
+            document.addEventListener("touchmove", (event) => {
+
+            if (!model) return;
+
+            // ROTATE
+
+            if (event.touches.length === 1) {
+
+                const currentX =
+                event.touches[0].clientX;
+
+                const deltaX =
+                currentX - previousX;
+
+                currentRotationY += deltaX * 0.5;
+
+                model.setAttribute(
+                "rotation",
+                `0 ${currentRotationY} 0`
+                );
+
+                previousX = currentX;
+            }
+
+            // SCALE
+
+            if (event.touches.length === 2) {
+
+                const newDistance =
+                getDistance(
+                    event.touches[0],
+                    event.touches[1]
+                );
+
+                const scaleFactor =
+                newDistance / pinchDistance;
+
+                currentScale *= scaleFactor;
+
+                currentScale =
+                Math.max(
+                    0.1,
+                    Math.min(currentScale, 20)
+                );
+
+                model.setAttribute(
+                "scale",
+                `${currentScale}
+                ${currentScale}
+                ${currentScale}`
+                );
+
+                pinchDistance = newDistance;
+            }
+
+            event.preventDefault();
+
+            }, { passive:false });
+
+            document.addEventListener("touchend", (event) => {
+
+            if (event.touches.length < 2) {
+                pinchDistance = null;
+            }
+
+});
+
+</script>
+<!--
 <script>
 
 const target = document.querySelector("#target");
@@ -137,6 +279,6 @@ target.addEventListener("targetLost", () => {
 });
 
 </script>
-
+-->
 </body>
 </html>
