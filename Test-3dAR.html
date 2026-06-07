@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Local WebAR Test App</title>
+
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      font-family: Arial, sans-serif;
+      background: #000;
+    }
+
+    #overlay {
+      position: absolute;
+      top: 20px;
+      left: 20px;
+      z-index: 10;
+      color: white;
+      background: rgba(0, 0, 0, 0.6);
+      padding: 12px;
+      border-radius: 10px;
+      max-width: 320px;
+    }
+
+    #status {
+      margin-top: 10px;
+      font-size: 14px;
+    }
+
+    button {
+      padding: 10px 14px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <div id="overlay">
+    <h2>WebAR Test App</h2>
+
+    <p>
+      Tap <strong>Start AR</strong> and point your phone camera at a flat surface.
+      Tap anywhere on the screen to place a rotating cube.
+    </p>
+
+    <button id="startButton">Start AR</button>
+
+    <div id="status">Waiting to start...</div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.161/build/three.module.js';
+    import { ARButton } from 'https://cdn.jsdelivr.net/npm/three@0.161/examples/jsm/webxr/ARButton.js';
+
+    let camera, scene, renderer;
+    let controller;
+    let reticle;
+    let placedObject = null;
+    let objectPlaced = false;
+
+    let currentScale = 1;
+
+    let previousTouchX = 0;
+    let previousTouchY = 0;
+
+    let previousCenterX = 0;
+    let previousCenterY = 0;
+
+    let pinchDistance = null;
+    let hitTestSource = null;
+    let hitTestSourceRequested = false;
+
+    const status = document.getElementById('status');
+    const startButton = document.getElementById('startButton');
+
+    init();
+
+    function init() {
+      scene = new THREE.Scene();
+
+      camera = new THREE.PerspectiveCamera(
+        70,
+        window.innerWidth / window.innerHeight,
+        0.01,
+        20
+      );
+
+      renderer = new THREE.WebGLRenderer({
+        antialias: true,
+        alpha: true,
+      });
+
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.xr.enabled = true;
+
+      document.body.appendChild(renderer.domElement);
+
+      const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
+      light.position.set(0.5, 1, 0.25);
+      scene.add(light);
+
+      controller = renderer.xr.getController(0);
+      controller.addEventListener('select', onSelect);
+      scene.add(controller);
+
+      const ringGeometry = new THREE.RingGeometry(0.08, 0.1, 32).rotateX(-Math.PI / 2);
+      const ringMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+
+      reticle = new THREE.Mesh(ringGeometry, ringMaterial);
+      reticle.matrixAutoUpdate = false;
+      reticle.visible = false;
+      scene.add(reticle);
+
+      startButton.addEventListener('click', startAR);
+
+      window.addEventListener('resize', onWindowResize);
+
+      renderer.setAnimationLoop(render);
+
+      renderer.domElement.addEventListener(
+        'touchstart',
+        onTouchStart,
+        { passive:false }
+      );
+
+      renderer.domElement.addEventListener(
+        'touchmove',
+        onTouchMove,
+        { passive:false }
+      );
+
+      renderer.domElement.addEventListener(
+        'touchend',
+        onTouchEnd
+      );
+
+    }
+
+    /*
+*/
+async function startAR() {
+
+  status.innerText = 'Checking AR support...';
+
+  if (!navigator.xr) {
+    status.innerText = 'WebXR unavailable';
+    return;
+  }
+
+  try {
+
+    const supported =
+      await navigator.xr.isSessionSupported('immersive-ar');
+
+    if (!supported) {
+      status.innerText =
+        'Immersive AR unsupported';
+      return;
+    }
+
+    status.innerText =
+      'AR Supported. Starting session...';
+
+    // Create AR button
+    const arButton = ARButton.createButton(renderer, {
+      requiredFeatures: ['hit-test'],
+      optionalFeatures: ['dom-overlay'],
+      domOverlay: { root: document.body }
+    });
+
+    // Style button so it becomes visible
+    arButton.style.position = 'absolute';
+    arButton.style.bottom = '20px';
+    arButton.style.left = '50%';
+    arButton.style.transform = 'translateX(-50%)';
+    arButton.style.padding = '12px 20px';
+    arButton.style.fontSize = '18px';
+    arButton.style.zIndex = '999';
+
+    document.body.appendChild(arButton);
+
+    status.innerText =
+      'Tap ENTER AR button below';
+
+  } catch (e) {
+
+    console.error(e);
+
+    status.innerText =
+      'Error: ' + e.message;
+  }
+}
+
+   function onSelect() {
+
+  if (!reticle.visible) return;
+
+  if (objectPlaced) return;
+
+  const geometry =
+    new THREE.BoxGeometry(
+      0.20,
+      0.20,
+      0.20
+    );
+
+  const material =
+    new THREE.MeshStandardMaterial({
+      color: 0x00ff00
+    });
+
+  placedObject =
+    new THREE.Mesh(
+      geometry,
+      material
+    );
+
+  placedObject.position.setFromMatrixPosition(
+    reticle.matrix
+  );
+
+  scene.add(placedObject);
+
+  objectPlaced = true;
+
+  status.innerText =
+    'Object placed';
+}
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function getDistance(t1, t2) {
+
+  return Math.hypot(
+    t1.clientX - t2.clientX,
+    t1.clientY - t2.clientY
+  );
+
+}
+
+function onTouchStart(event) {
+
+  if (!objectPlaced) return;
+
+  if (event.touches.length === 1) {
+
+    previousTouchX =
+      event.touches[0].clientX;
+
+    previousTouchY =
+      event.touches[0].clientY;
+  }
+
+  if (event.touches.length === 2) {
+
+    pinchDistance =
+      getDistance(
+        event.touches[0],
+        event.touches[1]
+      );
+
+    previousCenterX =
+        (event.touches[0].clientX +
+        event.touches[1].clientX) / 2;
+
+    previousCenterY =
+        (event.touches[0].clientY +
+        event.touches[1].clientY) / 2;
+  }
+}
+
+function onTouchMove(event) {if (
+  event.touches.length === 2 &&
+  pinchDistance !== null
+) {
+
+  const newDistance =
+    getDistance(
+      event.touches[0],
+      event.touches[1]
+    );
+
+  const factor =
+    newDistance / pinchDistance;
+
+  currentScale *= factor;
+
+  currentScale =
+    Math.max(
+      0.1,
+      Math.min(currentScale, 5)
+    );
+
+  placedObject.scale.set(
+    currentScale,
+    currentScale,
+    currentScale
+  );
+
+  pinchDistance = newDistance;
+
+  // Move Object
+
+  const centerX =
+    (event.touches[0].clientX +
+     event.touches[1].clientX) / 2;
+
+  const centerY =
+    (event.touches[0].clientY +
+     event.touches[1].clientY) / 2;
+
+  const moveX =
+    centerX - previousCenterX;
+
+  const moveY =
+    centerY - previousCenterY;
+
+  placedObject.position.x +=
+    moveX * 0.0015;
+
+  placedObject.position.z +=
+    moveY * 0.0015;
+
+  previousCenterX = centerX;
+  previousCenterY = centerY;
+}
+  if (event.touches.length === 1) {
+
+      const dx =
+        event.touches[0].clientX -
+        previousTouchX;
+
+      placedObject.rotation.y +=
+        dx * 0.01;
+
+      previousTouchX =
+        event.touches[0].clientX;
+
+  }
+
+
+  /*
+  if (!placedObject) return;
+
+  if (event.touches.length === 1) {
+
+    const dx =
+      event.touches[0].clientX -
+      previousTouchX;
+
+    const dy =
+      event.touches[0].clientY -
+      previousTouchY;
+
+    placedObject.position.x +=
+      dx * 0.0015;
+
+    placedObject.position.z +=
+      dy * 0.0015;
+
+    previousTouchX =
+      event.touches[0].clientX;
+
+    previousTouchY =
+      event.touches[0].clientY;
+  }
+  function onTouchRotate(event) {if (event.touches.length === 1) {
+
+  const dx =
+    event.touches[0].clientX -
+    previousTouchX;
+
+  const dy =
+    event.touches[0].clientY -
+    previousTouchY;
+
+  placedObject.rotation.y +=
+    dx * 0.01;
+
+  placedObject.rotation.x +=
+    dy * 0.01;
+
+  previousTouchX =
+    event.touches[0].clientX;
+
+  previousTouchY =
+    event.touches[0].clientY;
+
+}
+
+*/
+
+
+  if (
+    event.touches.length === 2 &&
+    pinchDistance !== null
+  ) {
+
+    const newDistance =
+      getDistance(
+        event.touches[0],
+        event.touches[1]
+      );
+
+    const factor =
+      newDistance /
+      pinchDistance;
+
+    currentScale *= factor;
+
+    currentScale =
+      Math.max(
+        0.1,
+        Math.min(currentScale, 5)
+      );
+
+    placedObject.scale.set(
+      currentScale,
+      currentScale,
+      currentScale
+    );
+
+    pinchDistance =
+      newDistance;
+
+  }
+
+  event.preventDefault();
+}
+
+
+
+
+function onTouchEnd() {
+
+  pinchDistance = null;
+   
+
+  }
+
+
+
+
+    function render(timestamp, frame) {
+      scene.children.forEach((obj) => {
+        if (obj.userData.rotate) {
+          obj.rotation.x += 0.01;
+          obj.rotation.y += 0.01;
+        }
+      });
+
+      if (frame) {
+        const referenceSpace = renderer.xr.getReferenceSpace();
+        const session = renderer.xr.getSession();
+
+        if (!hitTestSourceRequested) {
+          session.requestReferenceSpace('viewer').then((referenceSpace) => {
+            session.requestHitTestSource({ space: referenceSpace }).then((source) => {
+              hitTestSource = source;
+            });
+          });
+
+          session.addEventListener('end', () => {
+            hitTestSourceRequested = false;
+            hitTestSource = null;
+          });
+
+          hitTestSourceRequested = true;
+        }
+
+        if (hitTestSource) {
+          const hitTestResults = frame.getHitTestResults(hitTestSource);
+
+          if (hitTestResults.length) {
+            const hit = hitTestResults[0];
+            const pose = hit.getPose(referenceSpace);
+
+            reticle.visible = true;
+            reticle.matrix.fromArray(pose.transform.matrix);
+          } else {
+            reticle.visible = false;
+          }
+        }
+      }
+
+      renderer.render(scene, camera);
+    }
+  </script>
+
+  <!--
+    ===============================
+    HOW TO RUN LOCALLY
+    ===============================
+
+    1. Install Node.js
+       https://nodejs.org
+
+    2. Create a folder:
+       webar-test
+
+    3. Save this file as:
+       index.html
+
+    4. Start a local HTTPS-compatible server:
+
+       Option A:
+       npx serve
+
+       Option B:
+       npx http-server
+
+    5. Find your local IP:
+
+       Windows:
+       ipconfig
+
+       Mac/Linux:
+       ifconfig
+
+    6. Open on phone:
+       http://YOUR_LOCAL_IP:3000
+
+    Example:
+       http://192.168.1.5:3000
+
+    ===============================
+    REQUIREMENTS
+    ===============================
+
+    - Android Chrome OR iPhone Safari
+    - Camera permissions enabled
+    - Same WiFi network
+    - WebXR supported device
+
+  -->
+</body>
+</html>
