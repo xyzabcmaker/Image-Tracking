@@ -135,11 +135,39 @@ console.log("init running");
  );
 
  renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+ renderer.outputColorSpace =
+  THREE.SRGBColorSpace;
+
  renderer.setSize(window.innerWidth,window.innerHeight);
  renderer.xr.enabled=true;
  document.body.appendChild(renderer.domElement);
 
- scene.add(new THREE.HemisphereLight(0xffffff,0xbbbbff,1));
+ //scene.add(new THREE.HemisphereLight(0xffffff,0xbbbbff,1));
+
+const hemiLight =
+  new THREE.HemisphereLight(
+    0xffffff,
+    0xffffff,
+    2
+  );
+
+scene.add(hemiLight);
+
+const directionalLight =
+  new THREE.DirectionalLight(
+    0xffffff,
+    2
+  );
+
+directionalLight.position.set(
+  1,
+  2,
+  1
+);
+
+scene.add(directionalLight);
+
+
 
  controller=renderer.xr.getController(0);
  controller.addEventListener("select",onSelect);
@@ -208,8 +236,19 @@ function onSelect(){
  if(uploadedType==="model"){
   loader.load(uploadedAsset,(gltf)=>{
    placedObject=gltf.scene;
+   placedObject.traverse((child)=>{
+
+  if(child.isMesh){
+
+    child.material.needsUpdate =
+      true;
+
+  }
+
+});
+
    placedObject.position.setFromMatrixPosition(reticle.matrix);
-   placedObject.scale.set(5,5,5);
+   placedObject.scale.set(1,1,1);
    scene.add(
         placedObject
       );
@@ -224,6 +263,8 @@ function onSelect(){
   });
  }else{
    const texture=new THREE.TextureLoader().load(uploadedAsset);
+    texture.colorSpace =
+    THREE.SRGBColorSpace
 
    placedObject=new THREE.Mesh(
     new THREE.PlaneGeometry(0.4,0.4),
@@ -329,8 +370,10 @@ if(event.touches.length === 1){
 
   const factor=newDistance/pinchDistance;
 
+  // change the paramter (0.1,Math.min(currentScale,20), 0.1 for minimum, 20 for maximum
+
   currentScale*=factor;
-  currentScale=Math.max(0.1,Math.min(currentScale,5));
+  currentScale=Math.max(0.1,Math.min(currentScale,20));
 
   placedObject.scale.set(currentScale,currentScale,currentScale);
 
