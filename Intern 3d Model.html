@@ -1,0 +1,515 @@
+<!-- If the web page works how intended update the OG file in Image_tracking/Assets/AR3d model works-->
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>WebXR AR Asset Placement</title>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js"
+  }
+}
+</script>
+
+<style>
+body{margin:0;overflow:hidden;font-family:Arial,sans-serif}
+#overlay{
+position:absolute;top:60px;left:10px;z-index:1000;
+background:rgba(0,0,0,.7);color:#fff;padding:12px;border-radius:8px;
+max-width:340px
+}
+
+#navbar{
+  position:fixed;
+  top:0;
+  left:0;
+  width:100%;
+  height:50px;
+
+  display:flex;
+  align-items:center;
+  gap:20px;
+
+  padding:0 15px;
+
+  background:rgba(0,0,0,0.8);
+
+  z-index:9999;
+}
+
+#navbar a{
+  color:white;
+  text-decoration:none;
+  font-weight:bold;
+}
+
+#navbar a:hover{
+  text-decoration:underline;
+}
+
+
+
+
+button,input{margin-top:8px}
+</style>
+</head>
+<body>
+
+  <nav id="navbar">
+
+    <a href="index.html">Home Page</a>
+    <a href="success.html">3d Project on image</a>
+    <a href="test-3dAR.html">AR test</a>
+    <a href="Downloaded 3d models.html">Online 3D model</a>
+    <a href="Intern 3d Model.html">Intern ke 3d model</a>
+</nav>
+
+<div id="overlay">
+
+  <h3>AR Asset Viewer</h3>
+
+<input id="assetUpload" type="file"
+accept=".glb,.gltf,.png,.jpg,.jpeg,.webp">
+
+<div id="selectedAsset">No asset selected</div>
+
+<button id="startButton">Start AR</button>
+
+<div id="status">Waiting to start...</div>
+</div>
+
+<script type="module">
+import * as THREE from "three";
+import { ARButton } from "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/webxr/ARButton.js";
+import { GLTFLoader } from "https://cdn.jsdelivr.net/npm/three@0.161.0/examples/jsm/loaders/GLTFLoader.js";
+
+let camera, scene, renderer;
+let controller, reticle;
+let hitTestSource=null;
+let hitTestSourceRequested=false;
+
+let placedObject=null;
+let objectPlaced=false;
+
+let uploadedAsset=null;
+let uploadedType=null;
+
+let currentScale=1;
+let previousTouchX=0;
+let previousTouchY=0;
+let pinchDistance=null;
+let previousCenterX=0;
+let previousCenterY=0;
+
+const loader=new GLTFLoader();
+
+const status=document.getElementById("status");
+const startButton=document.getElementById("startButton");
+const assetUpload=document.getElementById("assetUpload");
+
+assetUpload.addEventListener("change",e=>{
+ const file=e.target.files[0];
+ if(!file) return;
+
+ uploadedAsset=URL.createObjectURL(file);
+
+ const n=file.name.toLowerCase();
+ uploadedType=(n.endsWith(".glb")||n.endsWith(".gltf"))?"model":"image";
+
+ document.getElementById("selectedAsset").innerText=file.name;
+});
+
+init();
+
+function init(){
+
+ scene=new THREE.Scene();
+
+ camera=new THREE.PerspectiveCamera(
+ 70,window.innerWidth/window.innerHeight,0.01,20
+ );
+
+ renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+ renderer.setSize(window.innerWidth,window.innerHeight);
+ renderer.xr.enabled=true;
+ document.body.appendChild(renderer.domElement);
+
+ scene.add(new THREE.HemisphereLight(0xffffff,0xbbbbff,1));
+
+ controller=renderer.xr.getController(0);
+ controller.addEventListener("select",onSelect);
+ scene.add(controller);
+
+ reticle=new THREE.Mesh(
+  new THREE.RingGeometry(0.08,0.1,32).rotateX(-Math.PI/2),
+  new THREE.MeshBasicMaterial()
+ );
+
+ reticle.matrixAutoUpdate=false;
+ reticle.visible=false;
+ scene.add(reticle);
+
+ startButton.addEventListener("click",startAR);
+
+      // Touch events must be attached to the document
+      // because WebXR often prevents the renderer canvas
+      // from receiving touch events once AR starts.
+
+        document.addEventListener(
+          "touchstart",
+          onTouchStart,
+          { passive:false }
+        );
+
+        document.addEventListener(
+          "touchmove",
+          onTouchMove,
+          { passive:false }
+        );
+
+        document.addEventListener(
+          "touchend",
+          onTouchEnd
+        );
+
+ renderer.setAnimationLoop(render);
+}
+
+function startAR(){
+ startButton.style.display="none";
+
+ const btn=ARButton.createButton(renderer,{
+  requiredFeatures:["hit-test"]
+ });
+
+ document.body.appendChild(btn);
+
+ status.innerText="Press ENTER AR";
+}
+
+function onSelect(){
+
+ if(!reticle.visible) return;
+ if(objectPlaced) return;
+
+ if(!uploadedAsset){
+  status.innerText="Upload asset first";
+  return;
+ }
+
+ if(uploadedType==="model"){
+  loader.load(uploadedAsset,(gltf)=>{
+   placedObject=gltf.scene;
+   placedObject.position.setFromMatrixPosition(reticle.matrix);
+   placedObject.scale.set(0.0005,0.0005,0.0005);
+   scene.add(
+        placedObject
+      );
+
+      // Store starting scale for pinch scaling.
+
+      currentScale = placedObject.scale.x;
+        //placedObject.scale.setScalar(0.0002);
+
+      objectPlaced = true;
+   status.innerText="Model placed";
+  });
+ }else{
+   const texture=new THREE.TextureLoader().load(uploadedAsset);
+
+   placedObject=new THREE.Mesh(
+    new THREE.PlaneGeometry(0.4,0.4),
+    new THREE.MeshBasicMaterial({
+      map:texture,
+      transparent:true,
+      side:THREE.DoubleSide
+    })
+   );
+
+   placedObject.position.setFromMatrixPosition(reticle.matrix);
+
+   scene.add(placedObject);
+   objectPlaced=true;
+   status.innerText="Image placed";
+ }
+}
+
+function getDistance(t1,t2){
+ return Math.hypot(
+  t1.clientX-t2.clientX,
+  t1.clientY-t2.clientY
+ );
+}
+
+function onTouchStart(event){
+
+ if(!placedObject) return;
+
+ if(event.touches.length===1){
+  previousTouchX=event.touches[0].clientX;
+ }
+
+ if(event.touches.length===2){
+
+  pinchDistance=getDistance(
+   event.touches[0],
+   event.touches[1]
+  );
+
+  previousCenterX=(event.touches[0].clientX+event.touches[1].clientX)/2;
+  previousCenterY=(event.touches[0].clientY+event.touches[1].clientY)/2;
+ }
+}
+
+function onTouchMove(event){
+  console.log(
+  "Touch Move",
+  event.touches.length
+);
+
+ if(!placedObject) return;
+
+if(event.touches.length === 1){
+
+  const dx =
+    event.touches[0].clientX -
+    previousTouchX;
+
+  const dy =
+    event.touches[0].clientY -
+    previousTouchY;
+
+  // Rotate on only one axis
+
+  if(
+    Math.abs(dx) >
+    Math.abs(dy)
+  ){
+
+    // Horizontal swipe
+    // Rotate around Y
+
+    placedObject.rotation.y +=
+      dx * 0.01;
+
+  }else{
+
+    // Vertical swipe
+    // Rotate around Z
+
+    placedObject.rotation.x +=
+      dy * 0.01;
+
+  }
+
+  previousTouchX =
+    event.touches[0].clientX;
+
+  previousTouchY =
+    event.touches[0].clientY;
+}
+
+ if(event.touches.length===2 && pinchDistance!==null){
+
+  const newDistance=getDistance(
+   event.touches[0],
+   event.touches[1]
+  );
+
+  const factor=newDistance/pinchDistance;
+
+  currentScale*=factor;
+  currentScale=Math.max(0.00005,Math.min(currentScale,0.05));
+
+  placedObject.scale.set(currentScale,currentScale,currentScale);
+
+  pinchDistance=newDistance;
+
+  const centerX=(event.touches[0].clientX+event.touches[1].clientX)/2;
+  const centerY=(event.touches[0].clientY+event.touches[1].clientY)/2;
+
+// Move object using two-finger drag.
+
+    const moveX =
+      centerX - previousCenterX;
+
+    const moveY =
+      centerY - previousCenterY;
+
+    if (
+      Math.abs(moveX) > 2 ||
+      Math.abs(moveY) > 2
+    ) {
+
+      placedObject.position.x +=
+        moveX * 0.002;
+
+      placedObject.position.z +=
+        moveY * 0.002;
+
+    }
+
+  previousCenterX=centerX;
+  previousCenterY=centerY;
+ }
+
+ event.preventDefault();
+}
+
+function onTouchEnd(){
+ pinchDistance=null;
+
+ /* Remove model from scene
+
+  if (placedObject) {
+
+    scene.remove(
+      placedObject
+    );
+
+    placedObject = null;
+
+    objectPlaced = false;
+
+    status.innerText =
+      "Model removed";
+
+  }*/
+}
+
+
+function onAREnd(){
+
+  console.log(
+    "AR Session Ended"
+  );
+
+  // Remove model
+
+  if(placedObject){
+
+    scene.remove(
+  placedObject
+);
+
+// dispose geometry/materials
+
+placedObject.traverse((child)=>{
+
+  if(child.isMesh){
+
+    child.geometry?.dispose();
+
+    if(child.material){
+
+      if(Array.isArray(child.material)){
+
+        child.material.forEach(
+          m => m.dispose()
+        );
+
+      }else{
+
+        child.material.dispose();
+
+      }
+
+    }
+
+  }
+
+});
+
+    placedObject = null;
+
+  }
+
+  // Reset placement
+  uploadedAsset = null;
+  uploadedType = null;
+  objectPlaced = false;
+
+  currentScale = 1;
+  hitTestSource = null;
+  hitTestSourceRequested = false;
+
+
+  pinchDistance = null;
+
+  // Refresh page
+
+  window.location.reload();
+
+}
+
+
+
+
+
+function render(timestamp,frame){
+
+    const session =
+  renderer.xr.getSession();
+
+    if(
+      session &&
+      !session.cleanupRegistered
+    ){
+
+      session.cleanupRegistered = true;
+
+      session.addEventListener(
+        "end",
+        onAREnd
+      );
+
+    }
+
+ if(frame){
+
+  const referenceSpace=renderer.xr.getReferenceSpace();
+  const session=renderer.xr.getSession();
+
+  if(!hitTestSourceRequested){
+
+   session.requestReferenceSpace("viewer").then(space=>{
+    session.requestHitTestSource({space}).then(source=>{
+     hitTestSource=source;
+    });
+   });
+
+   hitTestSourceRequested=true;
+  }
+
+  if(hitTestSource){
+
+   const hits=frame.getHitTestResults(hitTestSource);
+
+   if(hits.length){
+
+    const pose=hits[0].getPose(referenceSpace);
+
+    reticle.visible=true;
+    reticle.matrix.fromArray(pose.transform.matrix);
+
+   }else{
+    reticle.visible=false;
+   }
+  }
+ }
+
+  
+
+
+
+ renderer.render(scene,camera);
+}
+</script>
+</body>
+</html>
